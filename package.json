@@ -1,0 +1,22 @@
+{
+  "name": "bot-playwright",
+  "version": "1.0.0",
+  "description": "Proyecto de automatización de formularios con Playwright y Express",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "playwright",
+    "express",
+    "automation",
+    "form"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.40.0"
+  }
+}
