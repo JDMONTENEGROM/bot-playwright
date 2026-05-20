@@ -20,7 +20,11 @@ export async function loginAutomatico(data) {
     // Cerrar modal de sesión finalizada
     try {
       await page.waitForSelector('.btn-primary', { timeout: 5000, state: 'visible' });
-      await page.locator('.btn-primary').click({ force: true });
+      await page.mouse.move(644, 348);
+      await page.waitForTimeout(300);
+      await page.mouse.down();
+      await page.waitForTimeout(100);
+      await page.mouse.up();
       await page.waitForTimeout(2000);
     } catch (e) {
       // No había modal, continuar
@@ -38,6 +42,32 @@ export async function loginAutomatico(data) {
 
     await page.waitForLoadState('networkidle', { timeout: 60000 });
     await page.waitForTimeout(5000);
+
+    // Click en INGRESAR
+    await page.waitForSelector('input.btn.btn-primary', { timeout: 5000 });
+    await page.click('input.btn.btn-primary');
+    await page.waitForTimeout(8000);
+
+    // Ir directamente a Ingreso Individual
+    await page.goto('https://portalarl.axacolpatria.co/PortalARL/EmpleadoDependiente/IngresoIndividual');
+    await page.waitForTimeout(3000);
+
+    // Seleccionar Cédula en Tipo de Documento
+    await page.waitForSelector('#TipoIdentificacionSelect', { timeout: 5000 });
+    await page.selectOption('#TipoIdentificacionSelect', { value: '1' });
+    await page.waitForTimeout(1000);
+
+    // Llenar número de documento
+    await page.waitForSelector('#txtNumeroDocumento', { timeout: 5000 });
+    await page.click('#txtNumeroDocumento');
+    await page.waitForTimeout(500);
+    await page.type('#txtNumeroDocumento', data.cedula, { delay: 100 });
+    await page.waitForTimeout(1000);
+
+    // Click en BUSCAR
+    await page.waitForSelector('button.btn-primary.searchHistory', { timeout: 5000 });
+    await page.click('button.btn-primary.searchHistory');
+    await page.waitForTimeout(3000);
 
     await page.screenshot({ path: 'login-resultado.png', fullPage: true });
 
