@@ -25,14 +25,15 @@
   "cargo":           "OPERARIO",
 
   "empresaEnMision": "0",
+  "empresaAxa":  "ACABADOS LA COLINA",
   "sucursal":        "PRINCIPAL",
   "centroTrabajo":   "CENTRO TRABAJO 01",
 
   "administradoraEPS":  "SURA E.P.S",
   "administradoraAFP":  "PORVENIR",
   "tipoAfiliado":       "Dependiente",
-  "grupoOcupacion":     "AGENTES DE LA POLICIA NACIONAL",
-  "tipoOcupacion":      "0230",
+  "grupoOcupacion"   :  "ARQUITECTOS, INGENIEROS Y AFINES",
+    "tipoOcupacion" : "ARQUITECTOS Y URBANISTAS",
   "modalidadTrabajo":   "PRESENCIAL",
   "tareasAltoRiesgo":   "NO APLICA",
   "jornadaCompleta":    "Si"

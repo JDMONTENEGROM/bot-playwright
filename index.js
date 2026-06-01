@@ -9,18 +9,16 @@ app.use(express.json());
 app.use('/afiliar', afiliarRouter);
 
 app.post('/login', async (req, res) => {
-  const {
-    email, password, cedula, primerNombre, segundoNombre,
-    primerApellido, segundoApellido, fechaNacimiento, genero, estadoCivil,
-    departamento, ciudad, direccion, telefono, celular, correo,
-    fechaIngreso, tipoSalario, salarioBasico, cargo, empresaEnMision,
-    sucursal, centroTrabajo, tasaRiesgo, administradoraEPS, administradoraAFP,
-    tipoAfiliado, grupoOcupacion, tipoOcupacion, modalidadTrabajo,
-    tareasAltoRiesgo, jornadaCompleta
-  } = req.body;
-
-  const result = await loginAutomatico(req.body);
-  res.json(result);
+  try {
+    const resultado = await loginAutomatico(req.body);
+    res.json(resultado);
+  } catch (error) {
+    console.error('Error en /login:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 app.listen(PORT, () => {

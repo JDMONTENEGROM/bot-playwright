@@ -6,7 +6,7 @@ export async function loginAutomatico(data) {
     email, password, cedula, primerNombre, segundoNombre,
     primerApellido, segundoApellido, fechaNacimiento,
     direccion, telefono, celular, correo,
-    fechaIngreso, salarioBasico, cargo, empresaEnMision,
+    fechaIngreso, salarioBasico, cargo, empresaEnMision, empresaAxa,
     sucursal, centroTrabajo, tipoOcupacion, jornadaCompleta,
 
     // Estos llegan como nombres legibles → se traducen con mapas.js
@@ -72,7 +72,30 @@ export async function loginAutomatico(data) {
     await page.waitForLoadState('networkidle', { timeout: 60000 });
     await page.waitForTimeout(5000);
 
-    // Click en INGRESAR
+    // Seleccionar empresa en AXA
+    await page.waitForSelector('#ddlEmpresas', { timeout: 10000 });
+    await page.waitForTimeout(2000);
+
+    // Cambiar valor directamente en el DOM
+    await page.evaluate((nombreEmpresa) => {
+      const select = document.querySelector('#ddlEmpresas');
+      const normalizar = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+      const opcion = Array.from(select.options).find(
+        o => normalizar(o.text.trim()).includes(normalizar(nombreEmpresa.trim()))
+      );
+      if (!opcion) throw new Error(`Empresa "${nombreEmpresa}" no encontrada`);
+      select.value = opcion.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      select.dispatchEvent(new Event('input',  { bubbles: true }));
+    }, empresaAxa);
+
+    await page.waitForTimeout(3000); // esperar que el portal procese el cambio
+
+    // Verificar que quedó seleccionada
+    const empresaSeleccionada = await page.$eval('#ddlEmpresas', s => s.options[s.selectedIndex]?.text ?? '');
+    console.log('Empresa seleccionada:', empresaSeleccionada);
+
+    // SOLO después hacer click en INGRESAR
     await page.waitForSelector('input.btn.btn-primary', { timeout: 5000 });
     await page.click('input.btn.btn-primary');
     await page.waitForTimeout(8000);
@@ -130,8 +153,9 @@ export async function loginAutomatico(data) {
     const ciudadValue = await page.$eval(
       '#CiudadSelect',
       (select, nombreCiudad) => {
+        const normalizar = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
         const opcion = Array.from(select.options).find(
-          o => o.text.trim().toUpperCase() === nombreCiudad.trim().toUpperCase()
+          o => normalizar(o.text.trim()) === normalizar(nombreCiudad.trim())
         );
         if (!opcion) {
           const disponibles = Array.from(select.options)
@@ -159,6 +183,7 @@ export async function loginAutomatico(data) {
     await page.click('#Salaraio'); await page.type('#Salaraio', salarioBasico, { delay: 50 });
     await page.click('#txtCargo'); await page.type('#txtCargo', cargo,         { delay: 50 });
 
+    await page.waitForSelector('#EmpresasSelect', { timeout: 10000 });
     await page.selectOption('#EmpresasSelect', { value: empresaEnMision });
 
     // Sucursal (dependiente de Empresa)
@@ -170,8 +195,9 @@ export async function loginAutomatico(data) {
     const sucursalValue = await page.$eval(
       '#SucursalSelect',
       (select, nombre) => {
+        const normalizar = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
         const opcion = Array.from(select.options).find(
-          o => o.text.trim().toUpperCase().includes(nombre.trim().toUpperCase())
+          o => normalizar(o.text.trim()).includes(normalizar(nombre.trim()))
         );
         if (!opcion) {
           const disponibles = Array.from(select.options)
@@ -195,8 +221,9 @@ export async function loginAutomatico(data) {
     const centroValue = await page.$eval(
       '#CentroTrabajoSelect',
       (select, nombre) => {
+        const normalizar = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
         const opcion = Array.from(select.options).find(
-          o => o.text.trim().toUpperCase().includes(nombre.trim().toUpperCase())
+          o => normalizar(o.text.trim()).includes(normalizar(nombre.trim()))
         );
         if (!opcion) {
           const disponibles = Array.from(select.options)
@@ -220,7 +247,34 @@ export async function loginAutomatico(data) {
       const sel = document.querySelector('#tipoOcupacionEmpresasSelect');
       return sel && sel.options.length > 1;
     }, { timeout: 15000 });
-    await page.selectOption('#tipoOcupacionEmpresasSelect',{ value: tipoOcupacion });
+    const tipoOcupacionValue = await page.$eval(
+      '#tipoOcupacionEmpresasSelect',
+      (select, nombre) => {
+        const normalizar = s => {
+          let r = '';
+          for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i);
+            if (c < 128) r += s[i].toLowerCase();
+          }
+          return r.trim();
+        };
+
+        const nombreNorm = normalizar(nombre);
+        const opcion = Array.from(select.options).find(
+          o => normalizar(o.text).includes(nombreNorm) || nombreNorm.includes(normalizar(o.text))
+        );
+        if (!opcion) {
+          const disponibles = Array.from(select.options)
+            .map(o => o.text.trim())
+            .filter(t => t && t !== 'Seleccione una opción')
+            .join(' | ');
+          throw new Error(`Tipo ocupación "${nombre}" no encontrada. Disponibles: ${disponibles}`);
+        }
+        return opcion.value;
+      },
+      tipoOcupacion
+    );
+    await page.selectOption('#tipoOcupacionEmpresasSelect', { value: tipoOcupacionValue });
     await page.selectOption('#modalidadTrabajoSelect',     { value: v.modalidadTrabajo });
     await page.selectOption('#altoRiesgoSelect',           { value: v.tareasAltoRiesgo });
 
