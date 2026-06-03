@@ -285,11 +285,53 @@ export async function loginAutomatico(data) {
       await page.click('#rbJornadaIngIndivDependNo');
     }
 
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: 'login-resultado.png', fullPage: true });
+    // await page.waitForTimeout(1000);
+    // await page.screenshot({ path: 'login-resultado.png', fullPage: true });
 
-    const url = page.url();
-    return { success: !url.includes('Autenticacion'), url };
+    // Esperar modal "Transacción Exitosa"
+    await page.waitForSelector('#BtnAceptarModal', { timeout: 30000 });
+    console.log('✅ Transacción exitosa, cerrando modal...');
+    await page.click('#BtnAceptarModal');
+    await page.waitForTimeout(2000);
+
+    // Clic en Imprimir Comprobante
+    await page.waitForSelector('input#btnImprimir', { timeout: 15000 });
+    console.log('✅ Haciendo clic en Imprimir Comprobante...');
+
+    // Capturar la nueva pestaña que abre el PDF
+    const [nuevaPestana] = await Promise.all([
+      page.context().waitForEvent('page'),
+      page.click('input#btnImprimir')
+    ]);
+
+    await nuevaPestana.waitForLoadState('networkidle');
+    const urlPdf = nuevaPestana.url();
+    console.log('✅ URL del comprobante:', urlPdf);
+
+    // Descargar el PDF con la sesión activa
+    let comprobantePdf = null;
+    let tipoArchivo = 'pdf';
+    try {
+      const pdfBuffer = await nuevaPestana.pdf({ 
+        format: 'A4',
+        printBackground: true 
+      });
+      comprobantePdf = Buffer.from(pdfBuffer).toString('base64');
+      console.log('✅ PDF capturado como base64');
+    } catch(e) {
+      console.log('⚠️ pdf() falló, capturando screenshot:', e.message);
+      const screenshot = await nuevaPestana.screenshot({ fullPage: true });
+      comprobantePdf = Buffer.from(screenshot).toString('base64');
+      tipoArchivo = 'png';
+    }
+
+    return { 
+      success: true, 
+      mensaje: 'Empleado registrado correctamente en AXA',
+      urlComprobante: urlPdf,
+      comprobantePdf: comprobantePdf,
+      tipoArchivo: tipoArchivo
+    };
 
   } catch (error) {
     console.error('Error en loginAutomatico:', error);

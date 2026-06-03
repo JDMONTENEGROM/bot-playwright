@@ -1,34 +1,44 @@
 # Bot Playwright — Automatización AXA Colpatria
 
-Proyecto de automatización web con **Node.js + Express + Playwright** para interactuar con los portales de AXA Colpatria (autenticación y afiliación de trabajadores).
+Bot de automatización web con **Node.js + Express + Playwright** que llena el formulario de afiliación de trabajadores en el portal ARL de AXA Colpatria, descarga el comprobante PDF y devuelve el resultado al sistema Blinden (Laravel).
 
 ---
 
-## Arquitectura
+## Arquitectura general
 
 ```
-cliente HTTP
-     │
-     ▼
-  index.js  (Express, puerto 3000)
-     │
-     ├── POST /login  ──► routes/login.js ──► services/loginService.js
-     │                                            (Playwright)
-     │
-     └── POST /afiliar ──► routes/afiliar.js ──► controllers/afiliacionController.js
-                                                       │
-                                               services/axaService.js
-                                                    (Playwright)
+sistema-blindem (Laravel)
+  │
+  ├── Livewire: Crear.php / Ver.php
+  │     │
+  │     ▼
+  │   AxaJsonMapper.php  →  transforma Preafiliacion → array
+  │   AxaBotService.php  →  POST al bot, procesa respuesta
+  │
+  └───── POST http://localhost:3000/login ──────────────────┐
+                                                            ▼
+bot-playwright (Node.js)
+  │
+  ├── index.js                 (Express, puerto 3000)
+  ├── routes/login.js          (ruteo)
+  ├── services/loginService.js (automatización Playwright)
+  └── services/mapas.js        (traducción → códigos formulario)
 ```
 
-### Flujo de datos
+### Flujo completo
 
-1. El cliente envía un `POST` con JSON al servidor Express.
-2. Express parsea el body y enruta la petición.
-3. La ruta delega en un controlador (afiliar) o directamente en un servicio (login).
-4. El servicio abre una instancia de Chromium con Playwright y automatiza las acciones en el portal web de AXA Colpatria.
-5. Se toma una captura de pantalla como evidencia.
-6. El resultado se retorna como JSON al cliente.
+```
+1. Afiliador llena wizard en sistema-blindem (Livewire)
+2. Datos guardados en tabla preafiliaciones (PostgreSQL/Supabase)
+3. AxaJsonMapper transforma datos al formato que espera el bot
+4. AxaBotService envía JSON a POST /login del bot
+5. Bot Playwright abre Chrome, navega al portal AXA, llena formulario
+6. Bot hace clic en Ingresar Empleado (btnModificar)
+7. Espera modal "Transacción Exitosa", lo cierra
+8. Abre comprobante PDF en nueva pestaña, lo captura como base64
+9. Devuelve { success, urlComprobante, comprobantePdf, tipoArchivo }
+10. Laravel procesa la respuesta y guarda el resultado
+```
 
 ---
 
@@ -40,20 +50,15 @@ cliente HTTP
   ```powershell
   npx playwright install chromium
   ```
-- Perfil de Chrome persistente en `C:\Users\JEFE\AppData\Local\PlaywrightProfile` (usado por loginService)
+- Perfil de Chrome persistente en `C:\Users\JEFE\AppData\Local\PlaywrightProfile`
 
 ---
 
 ## Instalación
 
 ```powershell
-# 1. Clonar o copiar el proyecto
 cd bot-playwright
-
-# 2. Instalar dependencias
 npm install
-
-# 3. Iniciar el servidor
 npm start
 ```
 
@@ -61,211 +66,259 @@ El servidor corre en `http://localhost:3000`.
 
 ---
 
-## Herramientas utilizadas
+## Endpoint: `POST /login`
 
-### Node.js
-Entorno de ejecución de JavaScript del lado del servidor. Se usa como base para toda la aplicación.
-
-- **Instalación:** Descargar desde [nodejs.org](https://nodejs.org/) (v18 o superior).
-- **Uso en el proyecto:** Ejecuta el servidor Express y los scripts de automatización.
-
-### npm
-Administrador de paquetes de Node.js. Se usa para instalar y gestionar las dependencias del proyecto.
-
-- **Instalación:** Viene incluido con Node.js.
-- **Uso en el proyecto:**
-  ```powershell
-  npm install          # Instala dependencias del proyecto
-  npm start            # Inicia el servidor
-  ```
-
-### Express
-Framework web minimalista para Node.js. Provee el servidor HTTP y el sistema de rutas.
-
-- **Instalación:** Se instala automáticamente con `npm install` desde `package.json`.
-- **Uso en el proyecto:** Crea los endpoints REST `POST /login` y `POST /afiliar`, parsea JSON y enruta las peticiones a los controladores/servicios.
-
-### Playwright
-Librería de automatización de navegadores de Microsoft. Permite controlar Chromium mediante código.
-
-- **Instalación:**
-  ```powershell
-  npm install playwright          # Ya incluido en package.json
-  npx playwright install chromium  # Descarga el binario de Chromium
-  ```
-- **Uso en el proyecto:**
-  - `loginService.js` — Abre Chromium con perfil persistente, navega al portal AXA, llena formularios de login y búsqueda de trabajadores.
-  - `axaService.js` — Abre Chromium, navega al sitio principal de AXA y automatiza el formulario de afiliación.
-- **Comandos útiles de Playwright:**
-  ```powershell
-  # Generar selectores automáticamente (Codegen)
-  npx playwright codegen https://portalarl.axacolpatria.co
-
-  # Ejecutar en modo debug con inspector
-  $env:PWDEBUG=1; npm start
-
-  # Ver la lista de navegadores instalados
-  npx playwright install --list
-  ```
-
-### PowerShell (Windows) / curl
-Cliente HTTP para probar los endpoints.
-
-- **PowerShell:**
-  ```powershell
-  Invoke-RestMethod -Method POST -Uri "http://localhost:3000/login" `
-    -ContentType "application/json" `
-    -Body '{"email":"usuario","password":"clave","cedula":"123"}'
-  ```
-- **curl:**
-  ```bash
-  curl -X POST http://localhost:3000/login \
-    -H "Content-Type: application/json" \
-    -d '{"email":"usuario","password":"clave","cedula":"123"}'
-  ```
-
----
-
-## Endpoints
-
-### 1. `POST /login` — Inicio de sesión y búsqueda de trabajador
-
-Automatiza el inicio de sesión en el portal ARL de AXA Colpatria, navega al formulario de Ingreso Individual y busca un trabajador por número de documento.
-
-#### Body de ejemplo
+### Body completo (todos los campos que recibe el bot)
 
 ```json
 {
-  "email": "CC94493747",
-  "password": "Portalempresa2026+",
-  "cedula": "1234567890"
+  "email":              "CC94493747",
+  "password":           "Portalempresa2026+",
+  "cedula":             "1002821393",
+  "primerNombre":       "JEFERSON",
+  "segundoNombre":      "DAVID",
+  "primerApellido":     "MONTENEGRO",
+  "segundoApellido":    "MEDINA",
+  "fechaNacimiento":    "02/05/2026",
+  "genero":             "Masculino",
+  "estadoCivil":        "Soltero(a)",
+  "departamento":       "GUAVIARE",
+  "ciudad":             "SAN JOSE DEL GUAVIARE",
+  "direccion":          "VEREDA JULUMITO",
+  "telefono":           "",
+  "celular":            "3126466563",
+  "correo":             "correo@ejemplo.com",
+  "fechaIngreso":       "08/05/2026",
+  "tipoSalario":        "Básico",
+  "salarioBasico":      "546346785",
+  "cargo":              "DESARROLLADOR",
+  "empresaEnMision":    "EMPLEADOS DE PLANTA",
+  "empresaAxa":         "NOMBRE EMPRESA EN AXA",
+  "sucursal":           "PRINCIPAL",
+  "centroTrabajo":      "CENTRO TRABAJO 01",
+  "administradoraEPS":  "SURA E.P.S",
+  "administradoraAFP":  "COLPENSIONES",
+  "tipoAfiliado":       "Dependiente",
+  "grupoOcupacion":     "ARQUITECTOS, INGENIEROS Y AFINES",
+  "tipoOcupacion":      "ARQUITECTOS Y URBANISTAS",
+  "modalidadTrabajo":   "PRESENCIAL",
+  "tareasAltoRiesgo":   "NO APLICA",
+  "jornadaCompleta":    "Si"
 }
 ```
 
-| Campo     | Tipo   | Descripción                          |
-|-----------|--------|--------------------------------------|
-| `email`   | string | Usuario de acceso al portal          |
-| `password`| string | Contraseña del portal                |
-| `cedula`  | string | Número de documento del trabajador   |
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `email` | string | Usuario del portal AXA |
+| `password` | string | Contraseña del portal AXA |
+| `cedula` | string | Número de documento del trabajador |
+| `primerNombre` | string | |
+| `segundoNombre` | string | |
+| `primerApellido` | string | |
+| `segundoApellido` | string | |
+| `fechaNacimiento` | string | Formato `dd/mm/YYYY` |
+| `genero` | string | "Masculino" / "Femenino" |
+| `estadoCivil` | string | "Soltero(a)", "Casado(a)", etc. |
+| `departamento` | string | Nombre del departamento (ej: "VALLE") |
+| `ciudad` | string | Nombre de la ciudad |
+| `direccion` | string | Dirección de domicilio |
+| `telefono` | string | |
+| `celular` | string | |
+| `correo` | string | Email |
+| `fechaIngreso` | string | Formato `dd/mm/YYYY` |
+| `tipoSalario` | string | "Básico" / "Integral" |
+| `salarioBasico` | string | Salario en números |
+| `cargo` | string | Cargo del trabajador |
+| `empresaEnMision` | string | Nombre de la empresa en misión |
+| `empresaAxa` | string | Nombre de la empresa en el combo de AXA |
+| `sucursal` | string | Nombre de la sucursal |
+| `centroTrabajo` | string | Nombre del centro de trabajo |
+| `administradoraEPS` | string | Nombre legible de la EPS |
+| `administradoraAFP` | string | Nombre legible de la AFP |
+| `tipoAfiliado` | string | "Dependiente", etc. |
+| `grupoOcupacion` | string | Grupo de ocupación |
+| `tipoOcupacion` | string | Tipo de ocupación |
+| `modalidadTrabajo` | string | "PRESENCIAL", etc. |
+| `tareasAltoRiesgo` | string | "NO APLICA", etc. |
+| `jornadaCompleta` | string | "Si" / "No" |
 
-#### Respuesta exitosa
+### Respuesta exitosa
 
 ```json
 {
   "success": true,
-  "url": "https://portalarl.axacolpatria.co/PortalARL/EmpleadoDependiente/IngresoIndividual"
+  "mensaje": "Empleado registrado correctamente en AXA",
+  "urlComprobante": "https://portalarl.axacolpatria.co/.../Comprobante",
+  "comprobantePdf": "JVBERi0xLjcN... (base64)",
+  "tipoArchivo": "pdf"
 }
 ```
 
-#### Respuesta con error
+### Respuesta con error
 
 ```json
 {
   "success": false,
-  "error": "Error message here"
+  "error": "Ciudad \"CALI\" no encontrada. Disponibles: ..."
 }
-```
-
-#### Paso a paso de lo que automatiza
-
-| Paso | Acción | Detalle |
-|------|--------|---------|
-| 1 | Abre navegador | Lanza Chromium con perfil persistente (`headless: false`) |
-| 2 | Navega al portal | `aplicaciones.axacolpatria.co` — login ARL |
-| 3 | Cierra modal | Si aparece un modal de "sesión finalizada", simula clic izquierdo con coordenadas `(644, 348)` |
-| 4 | Llena usuario | Escribe `data.email` en el campo `USUARIO` con delay de 100ms entre caracteres |
-| 5 | Llena contraseña | Escribe `data.password` en el campo `PASSWORD` con delay de 100ms |
-| 6 | Click INICIAR SESIÓN | Hace clic en el botón `INICIAR SESIÓN` |
-| 7 | Espera carga | Espera `networkidle` (máx. 60s) + 5s adicionales |
-| 8 | Click INGRESAR | Busca `input.btn.btn-primary` y hace clic. Espera 8s |
-| 9 | Navega directo | `page.goto()` a la URL de Ingreso Individual |
-| 10 | Selecciona tipo doc | `#TipoIdentificacionSelect` → value `'1'` (Cédula) |
-| 11 | Llena número doc | Hace clic en `#txtNumeroDocumento` y escribe `data.cedula` con delay |
-| 12 | Click BUSCAR | Busca `button.btn-primary.searchHistory` y hace clic |
-| 13 | Captura pantalla | Guarda `login-resultado.png` |
-| 14 | Decide resultado | Si la URL actual contiene `'Autenticacion'`, falló; si no, éxito |
-| 15 | Cierra navegador | Siempre en `finally` |
-
-#### Ejemplo de consumo con PowerShell
-
-```powershell
-Invoke-RestMethod -Method POST -Uri "http://localhost:3000/login" `
-  -ContentType "application/json" `
-  -Body '{"email":"CC94493747","password":"Portalempresa2026+","cedula":"1234567890"}'
-```
-
-#### Ejemplo con curl
-
-```bash
-curl -X POST http://localhost:3000/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"CC94493747","password":"Portalempresa2026+","cedula":"1234567890"}'
 ```
 
 ---
 
-### 2. `POST /afiliar` — Afiliación de trabajador
+## Paso a paso de lo que automatiza el bot
 
-> **Nota:** Este endpoint está en fase de desarrollo. Los selectores y pasos deben ajustarse con Playwright Codegen.
+### Fase 1: Login en AXA Colpatria
 
-Automatiza la afiliación de un trabajador en el portal principal de AXA Colpatria.
+| Paso | Acción | Detalle |
+|------|--------|---------|
+| 1 | Abre Chrome | Lanza Chromium con perfil persistente (`headless: false`) |
+| 2 | Navega al portal | `aplicaciones.axacolpatria.co` — login ARL |
+| 3 | Cierra modal | Si aparece modal de "sesión finalizada", simula clic en `(644, 348)` |
+| 4 | Escribe usuario | `getByPlaceholder('USUARIO')` con `pressSequentially` (delay 100ms) |
+| 5 | Escribe contraseña | `getByPlaceholder('PASSWORD')` con `pressSequentially` (delay 100ms) |
+| 6 | Click INICIAR SESIÓN | `getByRole('button', { name: 'INICIAR SESIÓN' })` |
+| 7 | Espera carga | `networkidle` (máx. 60s) + 5s |
+| 8 | Selecciona empresa | `#ddlEmpresas` — busca por texto con normalización (quita acentos, case-insensitive) |
+| 9 | Click INGRESAR | `input.btn.btn-primary`, espera 8s |
+| 10 | Navega a Ingreso Individual | `page.goto()` directo a la URL del formulario |
 
-#### Body de ejemplo
+### Fase 2: Búsqueda del trabajador
 
-```json
-{
-  "trabajador": {
-    "num_doc": "1234567890",
-    "nombre": "Juan",
-    "apellido": "Pérez",
-    "tipo_doc": "CC",
-    "fecha_ingreso": "2024-01-15"
-  }
-}
-```
+| Paso | Acción | Detalle |
+|------|--------|---------|
+| 11 | Tipo documento | `#TipoIdentificacionSelect` → value `'1'` (Cédula) |
+| 12 | Número documento | `#txtNumeroDocumento` → escribe `cedula` con delay |
+| 13 | Click BUSCAR | `button.btn-primary.searchHistory` |
+| 14 | Cierra modal informativo | `#BtnAceptarModal` si aparece |
 
-| Campo              | Tipo   | Descripción                     |
-|--------------------|--------|----------------------------------|
-| `trabajador`       | object | Datos del trabajador a afiliar  |
-| `trabajador.num_doc`| string| Número de documento             |
-| `trabajador.nombre` | string| Primer nombre                   |
+### Fase 3: Llenado del formulario (30+ campos)
 
-#### Respuesta exitosa
+| # | Campo | Selector | Tipo |
+|---|-------|----------|------|
+| 1 | Primer nombre | `#txtPrimerNombre` | text |
+| 2 | Segundo nombre | `#txtSegundoNombre` | text |
+| 3 | Primer apellido | `#txtPrimerApellido` | text |
+| 4 | Segundo apellido | `#txtSegundoApellido` | text |
+| 5 | Fecha nacimiento | `#dtpFechaNacimiento` | text |
+| 6 | Género | `#GeneroSelect` | select (traducido) |
+| 7 | Estado civil | `#estadoCivilSelect` | select (traducido) |
+| 8 | Departamento | `#DepartamentoSelect` | select (traducido) |
+| 9 | Ciudad | `#CiudadSelect` | select (búsqueda por texto exacto, dependiente de depto) |
+| 10 | Dirección | `#txtDireccionDomicilio` | text |
+| 11 | Teléfono | `#txtTelefono` | text |
+| 12 | Celular | `#txtCelular` | text |
+| 13 | Email | `#txtEmail` | text |
+| 14 | Fecha ingreso | `#dtpFechaIngreso` | text |
+| 15 | Tipo salario | `#tipoSalarioSelect` | select (traducido) |
+| 16 | Salario | `#Salaraio` | text |
+| 17 | Cargo | `#txtCargo` | text |
+| 18 | Empresa en misión | `#EmpresasSelect` | select (búsqueda parcial) |
+| 19 | Sucursal | `#SucursalSelect` | select (búsqueda parcial, depende de empresa) |
+| 20 | Centro trabajo | `#CentroTrabajoSelect` | select (búsqueda parcial, depende de sucursal) |
+| 21 | EPS | `#EpsAfiliado` | select (traducido) |
+| 22 | AFP | `#AfpAfiliado` | select (traducido) |
+| 23 | Tipo afiliado | `#tipoAfiliacionEmpresasSelect` | select (traducido) |
+| 24 | Grupo ocupación | `#tipoGrupoOcupacionSelect` | select (traducido) |
+| 25 | Tipo ocupación | `#tipoOcupacionEmpresasSelect` | select (búsqueda parcial, con wait extra) |
+| 26 | Modalidad trabajo | `#modalidadTrabajoSelect` | select (traducido) |
+| 27 | Tareas alto riesgo | `#altoRiesgoSelect` | select (traducido) |
+| 28 | Jornada completa | `#rbJornadaIngIndivDependSi/No` | radio button |
 
-```json
-{
-  "status": "ok"
-}
-```
+### Fase 4: Envío y comprobante
 
-#### Respuesta con error
+| Paso | Acción | Detalle |
+|------|--------|---------|
+| 29 | Click Ingresar Empleado | `input#btnModificar` |
+| 30 | Espera modal éxito | `#BtnAceptarModal` (timeout 30s) |
+| 31 | Cierra modal | Click en `#BtnAceptarModal` |
+| 32 | Click Imprimir Comprobante | `input#btnImprimir` — abre nueva pestaña |
+| 33 | Captura nueva pestaña | `page.context().waitForEvent('page')` |
+| 34 | Obtiene URL del PDF | `nuevaPestana.url()` |
+| 35 | Descarga PDF | `nuevaPestana.pdf()` → base64 |
+| 36 | Fallback | Si `pdf()` falla, toma screenshot → base64 como PNG |
+| 37 | Devuelve resultado | `{ success, mensaje, urlComprobante, comprobantePdf, tipoArchivo }` |
 
-```json
-{
-  "error": "Trabajador is required"
-}
-```
+---
 
-#### Paso a paso de lo que automatiza
+## Traducción de valores (mapas.js)
 
-| Paso | Acción | Estado |
-|------|--------|--------|
-| 1 | Abre navegador | Chromium `headless: false` |
-| 2 | Navega a `axacolpatria.co` | ✅ |
-| 3 | Login en el portal | ❌ Pendiente (comentado) |
-| 4 | Navegar a afiliación | ❌ Pendiente (comentado) |
-| 5 | Llenar formulario | Parcial (solo num_doc y nombre como demo) |
-| 6 | Detectar CAPTCHA | ✅ Si hay reCAPTCHA, pausa para intervención manual |
-| 7 | Enviar formulario | ❌ Selectores placeholder |
-| 8 | Captura de pantalla | ✅ Guarda `resultado.png` |
+El archivo `services/mapas.js` contiene el mapeo de nombres legibles a los valores que espera cada `<select>` del formulario AXA.
 
-#### Ejemplo de consumo
+### Categorías
 
-```powershell
-Invoke-RestMethod -Method POST -Uri "http://localhost:3000/afiliar" `
-  -ContentType "application/json" `
-  -Body '{"trabajador":{"num_doc":"1234567890","nombre":"Juan"}}'
-```
+| Categoría | Ejemplo entrada → salida |
+|---|---|
+| `Genero` | "Masculino" → `"M"` |
+| `EstadoCivil` | "Soltero(a)" → `"1"` |
+| `CodigoDepartamento` | "VALLE" → `"76"` |
+| `TipoSalario` | "Básico" → `"1"` |
+| `EpsAfiliado` | "SURA E.P.S" → `"10"` |
+| `AfpAfiliado` | "PORVENIR" → `"3"` |
+| `TipoAfiliacion` | "Dependiente" → `"1"` |
+| `GrupoOcupacion` | "ARQUITECTOS, INGENIEROS Y AFINES" → `"86"` |
+| `ModalidadTrabajo` | "PRESENCIAL" → `"01"` |
+| `TareaAltoRiesgo` | "NO APLICA" → `"0000001"` |
+
+### Funciones
+
+- `obtenerValor(campo, nombre)` — busca el nombre en el mapa, **lanza error** si no existe con lista de opciones disponibles
+- `obtenerValorSeguro(campo, nombre)` — igual pero devuelve `null` en vez de error
+
+### Patrón para selects dependientes
+
+Los selects que dependen de otro (Ciudad ← Departamento, Sucursal ← Empresa, Centro Trabajo ← Sucursal, Tipo Ocupación) siguen este patrón:
+
+1. `waitForFunction` — esperar a que el `<select>` tenga >1 opción (timeout 10-15s)
+2. `page.$eval` — buscar en las `options` del DOM:
+   - Coincidencia **exacta** (`===`) para Ciudad
+   - Coincidencia **parcial** (`.includes()`) para Sucursal, Centro Trabajo
+   - Coincidencia **parcial con normalización ASCII** para Tipo Ocupación
+   - Todas son **case-insensitive** y sin acentos
+   - Si no encuentra: lanza `Error` con lista de opciones disponibles
+3. `selectOption` con el `value` encontrado
+
+---
+
+## AxaJsonMapper.php (lado Laravel)
+
+Transforma un modelo `Preafiliacion` (con relaciones `empresa.entidades` cargadas) al array que espera el bot.
+
+### Mapeo de campos
+
+| Campo del mapper | Origen | Ejemplo |
+|---|---|---|
+| `email` | `$entidadArl->pivot->usuario` | "CC94493747" |
+| `password` | `$entidadArl->pivot->contrasena` | "Portalempresa2026+" |
+| `cedula` | `$pre->numero_documento` | "1002821393" |
+| `primerNombre` | `parseNombres()[0]` | "JEFERSON" |
+| `segundoNombre` | `parseNombres()[1]` | "DAVID" |
+| `primerApellido` | `parseNombres()[2]` | "MONTENEGRO" |
+| `segundoApellido` | `parseNombres()[3]` | "MEDINA" |
+| `genero` | `match($pre->genero)` | M → "Masculino" |
+| `estadoCivil` | `match($pre->estado_civil)` | soltero → "Soltero(a)" |
+| `departamento` | `normalizarDepartamento()` | "VALLE DEL CAUCA" → "VALLE" |
+| `ciudad` | `quitarAcentos()` | "POPAYÁN" → "POPAYAN" |
+| `administradoraEPS` | `normalizarEps($entidadEps->nombre)` | "NUEVA EPS" → "NUEVA E.P.S. S.A." |
+| `administradoraAFP` | `$entidadAfp->nombre` | "COLPENSIONES" |
+| `empresaAxa` | `$empresa->nombre` | Nombre real para combo AXA |
+
+### Método `normalizarEps()`
+
+Normaliza nombres cortos/comunes de EPS a su nombre oficial en el formulario AXA:
+
+| Entrada | Salida |
+|---|---|
+| "NUEVA EPS" | "NUEVA E.P.S. S.A." |
+| "SURA" / "EPS SURA" | "SURA E.P.S" |
+| "SANITAS" | "E.P.S. SANITAS S.A." |
+| "COMPENSAR" | "COMPENSAR E.P.S." |
+| "FAMISANAR" | "E.P.S. FAMISANAR LTDA." |
+| "COOMEVA" | "COOMEVA E.P.S. SA" |
+| "SALUD TOTAL" | "SALUD TOTAL S.A. E.P.S" |
+| "CRUZ BLANCA" | "CRUZ BLANCA E.P.S. SA" |
+| ... | etc. |
+
+Si el nombre no coincide con ninguna clave del mapa, devuelve el nombre en mayúsculas tal cual (para detectar el nombre real del portal en el error).
 
 ---
 
@@ -273,61 +326,160 @@ Invoke-RestMethod -Method POST -Uri "http://localhost:3000/afiliar" `
 
 ```
 bot-playwright/
-├── index.js                          # Servidor Express (entry point)
+├── index.js                          # Entry point — servidor Express
 ├── package.json                      # Dependencias y scripts
-├── AGENTE.md                         # Reglas para el agente de IA
+├── AGENTE.md                         # Reglas para agente de IA
 ├── README.md                         # Esta documentación
 │
 ├── routes/
-│   ├── login.js                      # Ruta POST /login
-│   └── afiliar.js                    # Ruta POST /afiliar
+│   ├── login.js                      # Ruta POST /login (redirige a loginService)
+│   └── afiliar.js                    # Ruta POST /afiliar (en desarrollo)
 │
 ├── controllers/
 │   └── afiliacionController.js       # Validación y orquestación de afiliación
 │
 ├── services/
-│   ├── loginService.js               # Automatización de login y búsqueda
-│   └── axaService.js                 # Automatización de afiliación
+│   ├── loginService.js               # CORAZÓN: automatización completa del flujo
+│   └── axaService.js                 # Afiliación en portal principal (WIP)
+│   └── mapas.js                      # Traducción nombres legibles → códigos AXA
 │
 ├── utils/
 │   └── browser.js                    # Utilidad compartida de navegador
 │
 ├── temp_get_form.js                  # Script temporal de depuración
-├── login-resultado.png               # Screenshot generado por loginService
-└── test.txt                          # Archivo placeholder
+└── test.txt                          # Placeholder
+```
+
+### Archivos del lado Laravel (sistema-blindem)
+
+```
+sistema-blindem/
+├── app/Services/
+│   ├── AxaJsonMapper.php             # Mapea Preafiliacion → JSON del bot
+│   └── AxaBotService.php             # Envía JSON al bot vía HTTP POST
+├── app/Livewire/Afiliaciones/Preafiliaciones/
+│   ├── Crear.php                     # Llama al bot al guardar/editar
+│   └── Ver.php                       # Llama al bot al aprobar + botón manual
+├── config/services.php               # Config: axa_bot.url
+└── resources/views/livewire/.../ver.blade.php  # Botón "Enviar a AXA"
 ```
 
 ---
 
-## Notas técnicas
+## Configuración
 
-### Perfil persistente de Chrome
+### URL del bot (Laravel)
 
-`loginService.js` usa `chromium.launchPersistentContext()` con una ruta fija de perfil. Esto mantiene sesiones y cookies entre ejecuciones. Si se necesita cambiar la ruta, editar la línea 5 de `services/loginService.js`.
+`config/services.php`:
+```php
+'axa_bot' => [
+    'url' => env('AXA_BOT_URL', 'http://localhost:3000'),
+],
+```
 
-### Modo headless
+### Perfil de Chrome (Playwright)
 
-Actualmente ambos servicios usan `headless: false` para depuración visual. Para producción cambiar a `headless: true` en cada servicio o centralizar la configuración en `utils/browser.js`.
+Ruta en `services/loginService.js`:
+```js
+'C:\\Users\\JEFE\\AppData\\Local\\PlaywrightProfile'
+```
+Perfil persistente que mantiene sesiones de Chrome entre ejecuciones (evita 2FA).
 
-### Selectores frágiles
+### Tiempos importantes
 
-Los selectores como `.btn-primary`, `#txtNumeroDocumento`, etc., dependen de clases e IDs del sitio de AXA. Si el sitio cambia su estructura HTML, los selectores pueden romperse. Se recomienda revisarlos periódicamente con Playwright Codegen.
-
-### Detección de automatización
-
-Se usa el flag `--disable-blink-features=AutomationControlled` para evitar detección básica de bots. Sin embargo, sitios con protección avanzada (reCAPTCHA, fingerprinting) pueden requerir intervención manual.
+| Acción | Timeout |
+|---|---|
+| HTTP Laravel → bot | 120s |
+| `networkidle` post-login | 60s |
+| `waitForFunction` selects dependientes | 10s |
+| `waitForFunction` tipo ocupación | 15s (+2s pre-delay) |
+| Modal "Transacción Exitosa" | 30s |
+| Botón "Imprimir Comprobante" | 15s |
+| Delays entre tipeos | 50-100ms |
 
 ---
 
-## Solución de problemas
+## Pruebas y verificación
 
-| Problema | Posible causa | Solución |
-|----------|--------------|----------|
-| El navegador no se abre | Chromium no instalado | Ejecutar `npx playwright install chromium` |
-| Error "Cannot find module" | Dependencias no instaladas | Ejecutar `npm install` |
-| El selector no encuentra el elemento | La página cambió o el selector es incorrecto | Usar Playwright Codegen para obtener selectores actualizados |
-| reCAPTCHA bloquea | Detección de automatización | Intervenir manualmente cuando el script haga `page.pause()` |
-| Puerto 3000 en uso | Otro proceso usando el puerto | Cambiar `PORT` en `index.js` o matar el proceso |
+### Desde Tinker (Laravel)
+
+```php
+$pre = \App\Models\Preafiliacion::with('empresa.entidades')->find(5);
+$mapper = new \App\Services\AxaJsonMapper();
+$datos = $mapper->mapear($pre);
+// ↑ Muestra el JSON generado
+
+$bot = new \App\Services\AxaBotService();
+$resultado = $bot->afiliar($datos);
+// ↑ Muestra el resultado del bot
+
+dd($resultado);
+```
+
+### Probar el bot directamente con PowerShell
+
+```powershell
+Invoke-RestMethod -Method POST -Uri "http://localhost:3000/login" `
+  -ContentType "application/json" `
+  -Body '{"email":"CC94493747","password":"Portalempresa2026+","cedula":"1002821393"}'
+```
+
+### Con curl
+
+```bash
+curl -X POST http://localhost:3000/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"CC94493747","password":"Portalempresa2026+","cedula":"1002821393"}'
+```
+
+---
+
+## Manejo de errores
+
+### 1. Error de conexión (servidor bot caído)
+- Laravel captura `\Exception`
+- Mensaje: `"Error de conexión con el bot AXA: ..."`
+
+### 2. Error HTTP (bot responde con status no 2xx)
+- `$response->body()` se incluye en el mensaje
+
+### 3. Error del bot (success: false)
+- Se extrae `$json['error']` del body
+- Ej: `"Error en el bot: Ciudad "CALI" no encontrada..."`
+
+### 4. EPS no encontrada en normalización
+- El mapper devuelve el nombre en mayúsculas tal cual
+- El error de `mapas.js` mostrará el nombre exacto que llegó del portal
+- Se agrega la entrada faltante al mapa `normalizarEps()` en `AxaJsonMapper.php`
+
+### 5. Excepción no capturada en loginService.js
+- El `try/catch` en `index.js` responde con status 500
+- El proceso de Node no muere
+
+---
+
+## Estado del proyecto
+
+### ✅ Completado
+- Login automático en AXA Colpatria (usuario + contraseña + selección de empresa)
+- Llenado completo del formulario de Ingreso Individual (30+ campos)
+- Traducción de valores legibles a códigos del formulario (mapas.js)
+- Selección por texto en selects dependientes (ciudad, sucursal, centro trabajo, tipo ocupación)
+- AxaJsonMapper genera JSON correctamente desde la BD
+- EPS y AFP se leen desde entidades asociadas a la empresa
+- Credenciales AXA desde `empresa_entidades.pivot`
+- Normalización de departamentos (VALLE DEL CAUCA → VALLE) y EPS (NUEVA EPS → NUEVA E.P.S. S.A.)
+- Envío del formulario (click en Ingresar Empleado)
+- Captura de comprobante PDF en base64 (con fallback a screenshot PNG)
+- Cierre de modal de "Transacción Exitosa"
+- AxaBotService verifica `$json['success']` del bot
+
+### 🔧 En progreso / pendiente
+- ~~Botón "Enviar a AXA" en Ver.php~~ (ya implementado en Livewire)
+- ~~Guardar resultado en columnas `axa_bot_estado`, `axa_bot_mensaje`, `axa_bot_enviado_at`~~ (ya implementado)
+- Guardar comprobante PDF en `storage/app/public/axa_comprobantes/` desde Laravel
+- Mostrar comprobante en la vista `Ver.php`
+- Botón "Generar JSON AXA" en Ver.php (previsualizar antes de enviar)
 
 ---
 
@@ -343,8 +495,38 @@ npx playwright install chromium
 # Abrir Playwright Inspector para debug
 $env:PWDEBUG=1; npm start
 
-# Probar el endpoint de login
-Invoke-RestMethod -Method POST -Uri "http://localhost:3000/login" `
-  -ContentType "application/json" `
-  -Body '{"email":"usuario","password":"clave","cedula":"123"}'
+# Generar selectores automáticamente (Codegen)
+npx playwright codegen https://portalarl.axacolpatria.co
+
+# Ver navegadores instalados
+npx playwright install --list
 ```
+
+---
+
+## Notas técnicas
+
+### Perfil persistente
+`loginService.js` usa `chromium.launchPersistentContext()` con ruta fija. Esto mantiene sesiones y cookies entre ejecuciones.
+
+### Modo headless
+Actualmente `headless: false` para depuración visual. Para producción, cambiar a `headless: true`.
+
+### Selectores frágiles
+Los selectores (`#txtPrimerNombre`, `.btn-primary`, etc.) dependen de la estructura HTML del sitio de AXA. Si cambian, usar Playwright Codegen para actualizarlos.
+
+### Anti-detección
+Se usa `--disable-blink-features=AutomationControlled` para evitar detección básica de bots. Sitios con reCAPTCHA pueden requerir intervención manual.
+
+---
+
+## Solución de problemas
+
+| Problema | Causa | Solución |
+|---|---|---|
+| Chrome no se abre | Chromium no instalado | `npx playwright install chromium` |
+| "Cannot find module" | Dependencias no instaladas | `npm install` |
+| Selector no encuentra elemento | Sitio cambió | Usar Codegen para selectores actualizados |
+| Puerto 3000 en uso | Otro proceso | Cambiar `PORT` en `index.js` o matar proceso |
+| EPS no se traduce | No está en `normalizarEps()` | Agregar entrada al mapa en AxaJsonMapper.php |
+| Valor no encontrado en mapas.js | No está en el mapa | El error muestra las opciones disponibles, agregar la faltante |
