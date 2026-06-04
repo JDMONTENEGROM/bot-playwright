@@ -1,6 +1,13 @@
 import { chromium } from 'playwright';
 import { obtenerValor } from './mapas.js';
 
+async function llenar(page, selector, valor) {
+  await page.waitForSelector(selector, { timeout: 10000 });
+  await page.click(selector, { clickCount: 3 });
+  await page.waitForTimeout(100);
+  await page.type(selector, String(valor), { delay: 50 });
+}
+
 export async function loginAutomatico(data) {
   const {
     email, password, cedula, primerNombre, segundoNombre,
@@ -34,10 +41,15 @@ export async function loginAutomatico(data) {
 
   const browser = await chromium.launchPersistentContext(
     'C:\\Users\\JEFE\\AppData\\Local\\PlaywrightProfile',
-    {
-      channel: 'chrome',
+    { 
+      channel: 'chrome', 
       headless: false,
-      args: ['--disable-blink-features=AutomationControlled']
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-autofill-keyboard-accessory-view',
+        '--disable-features=AutofillServerCommunication',
+        '--disable-autofill',
+      ]
     }
   );
 
@@ -130,13 +142,22 @@ export async function loginAutomatico(data) {
       // No había modal, continuar
     }
 
+    // Esperar que el portal pre-llene los campos antes de limpiarlos
+    await page.waitForTimeout(3000);
+
+    // Limpiar todos los campos de texto que el portal pre-llenó
+    await page.evaluate(() => {
+      document.querySelectorAll('input[type="text"], input[type="email"], input[type="number"]')
+        .forEach(el => { el.value = ''; });
+    });
+    await page.waitForTimeout(500);
+
     // ── Campos de texto ──────────────────────────────────────────────────
-    await page.waitForSelector('#txtPrimerNombre', { timeout: 10000 });
-    await page.click('#txtPrimerNombre');    await page.type('#txtPrimerNombre',    primerNombre,    { delay: 50 });
-    await page.click('#txtSegundoNombre');   await page.type('#txtSegundoNombre',   segundoNombre,   { delay: 50 });
-    await page.click('#txtPrimerApellido'); await page.type('#txtPrimerApellido',  primerApellido,  { delay: 50 });
-    await page.click('#txtSegundoApellido');await page.type('#txtSegundoApellido', segundoApellido, { delay: 50 });
-    await page.click('#dtpFechaNacimiento');await page.type('#dtpFechaNacimiento', fechaNacimiento, { delay: 50 });
+    await llenar(page, '#txtPrimerNombre',    primerNombre);
+    await llenar(page, '#txtSegundoNombre',   segundoNombre);
+    await llenar(page, '#txtPrimerApellido',  primerApellido);
+    await llenar(page, '#txtSegundoApellido', segundoApellido);
+    await llenar(page, '#dtpFechaNacimiento', fechaNacimiento);
     await page.waitForTimeout(500);
 
     // ── Selects con traducción ───────────────────────────────────────────
@@ -171,17 +192,17 @@ export async function loginAutomatico(data) {
     await page.selectOption('#CiudadSelect', { value: ciudadValue });
 
     // ── Más campos de texto ──────────────────────────────────────────────
-    await page.click('#txtDireccionDomicilio'); await page.type('#txtDireccionDomicilio', direccion,    { delay: 50 });
-    await page.click('#txtTelefono');           await page.type('#txtTelefono',           telefono,     { delay: 50 });
-    await page.click('#txtCelular');            await page.type('#txtCelular',            celular,      { delay: 50 });
-    await page.click('#txtEmail');              await page.type('#txtEmail',              correo,       { delay: 50 });
-    await page.click('#dtpFechaIngreso');       await page.type('#dtpFechaIngreso',       fechaIngreso, { delay: 50 });
+    await llenar(page, '#txtDireccionDomicilio', direccion);
+    await llenar(page, '#txtTelefono',           telefono);
+    await llenar(page, '#txtCelular',            celular);
+    await llenar(page, '#txtEmail',              correo);
+    await llenar(page, '#dtpFechaIngreso',       fechaIngreso);
     await page.waitForTimeout(500);
 
     // ── Más selects con traducción ───────────────────────────────────────
     await page.selectOption('#tipoSalarioSelect', { value: v.tipoSalario });
-    await page.click('#Salaraio'); await page.type('#Salaraio', salarioBasico, { delay: 50 });
-    await page.click('#txtCargo'); await page.type('#txtCargo', cargo,         { delay: 50 });
+    await llenar(page, '#Salaraio', salarioBasico);
+    await llenar(page, '#txtCargo', cargo);
 
     await page.waitForSelector('#EmpresasSelect', { timeout: 10000 });
     await page.selectOption('#EmpresasSelect', { value: empresaEnMision });
@@ -285,8 +306,14 @@ export async function loginAutomatico(data) {
       await page.click('#rbJornadaIngIndivDependNo');
     }
 
-    // await page.waitForTimeout(1000);
-    // await page.screenshot({ path: 'login-resultado.png', fullPage: true });
+    await page.waitForTimeout(1000);
+     await page.screenshot({ path: 'login-resultado.png', fullPage: true });
+
+     //Hacer clic en Ingresar Empleado
+     await page.waitForSelector('input#btnModificar', { timeout: 15000 });
+     console.log('✅ Haciendo clic en Ingresar Empleado...');
+     await page.click('input#btnModificar');
+     await page.waitForTimeout(3000);
 
     // Esperar modal "Transacción Exitosa"
     await page.waitForSelector('#BtnAceptarModal', { timeout: 30000 });
